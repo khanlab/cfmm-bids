@@ -38,6 +38,9 @@ function usage {
 
 }
 
+execpath=`dirname $0`
+execpath=`realpath $execpath`
+
 
 # new usage to be:
 # -d (YYYYMMDD - default '-')
@@ -91,7 +94,7 @@ DICOMS_DIR=$OUTPUT_DIR/dicoms
 mkdir -p $OUTPUT_DIR $DICOMS_DIR
 
 #singularity image defined in CONFIG_DCM_RETRIEVE file
-((python retrieve_cfmm_tgz.py \
+((python $execpath/retrieve_cfmm_tgz.py \
 ${UWO_USERNAME} \
 ${UWO_PASSWORD} \
 ${CONNECT} \
