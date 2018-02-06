@@ -66,7 +66,9 @@ def sort_dicom_file(filename,outupt_dir):
         print "something wrong with", filename
         return 
 
-    pp = dataset.StudyDescription.partition('^')
+    #CFMM's newer data:'khan^NeuroAnalytics'->['khan','NeuroAnalytics']
+    #CFMM's older GE data:'peter DTI'->['peter','DTI']
+    pp = dataset.StudyDescription.replace('^',' ').split() 
     patient = dataset.PatientName.partition('^')[0]
 
     path = os.path.join(outupt_dir, clean_path(pp[0]))
@@ -79,7 +81,7 @@ def sort_dicom_file(filename,outupt_dir):
         #print path 
         os.makedirs(path)
 
-    for nextpath in [pp[2],
+    for nextpath in [pp[1],
                     dataset.StudyDate,
                     patient,
                     '.'.join([dataset.StudyID or 'NA', hashcode(dataset.StudyInstanceUID)]),
