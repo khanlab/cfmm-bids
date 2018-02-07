@@ -1,0 +1,111 @@
+Bootstrap: docker
+From: ubuntu:xenial
+
+#########
+%setup
+#########
+mkdir -p $SINGULARITY_ROOTFS/src
+cp -Rv . $SINGULARITY_ROOTFS/src
+
+
+
+
+#########
+%post
+#########
+
+
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update && apt-get install -y --no-install-recommends apt-utils \
+    sudo \
+    git \
+    wget \
+    curl \
+    zip \
+    unzip \
+    python2.7 \
+    python-pip \
+    rsync \
+    openssh-client
+
+pip install -U pip setuptools
+
+######
+%appfiles dicom2tar
+dicom2tar.py
+
+#####
+%appinstall dicom2tar
+
+git clone https://www.github.com/pydicom/pydicom.git
+cd pydicom
+git checkout 1314e86e3a96d0c226a03fb21136c0ff3c3ce7d3 #commit from Feb 1 2018
+python setup.py install
+
+
+#########
+%apprun dicom2tar
+exec ${SINGULARITY_APPROOT}/dicom2tar.py $@
+
+#########
+
+
+
+
+#########
+%appfiles cfmm2tar
+
+getDicomTarballs 
+install_dcm4che_ubuntu.sh 
+retrieve_cfmm_tgz.py
+#########
+
+
+#########
+%appinstall cfmm2tar
+
+
+#needed for keytool
+if [ ! -e /dev/fd ]
+then
+ln -s /proc/self/fd /dev/fd
+fi
+
+
+#install pydicom
+git clone https://www.github.com/pydicom/pydicom.git
+cd pydicom
+git checkout ebf6a79602348d003a1d1324c66626f9f2b05432
+python setup.py install
+
+
+#needed when install dcm4che
+apt-get install -y default-jre
+
+
+#install dcm4che
+cd ${SINGULARITY_APPROOT}
+bash install_dcm4che_ubuntu.sh ${SINGULARITY_APPROOT} 
+
+#########
+
+
+#########
+%appenv cfmm2tar
+
+export PATH=${SINGULARITY_APPROOT}:${SINGULARITY_APPROOT}/dcm4che-3.3.8/bin:$PATH
+export _JAVA_OPTIONS="-Xmx4048m"
+#########
+
+
+#########
+%apprun cfmm2tar
+exec ${SINGULARITY_APPROOT}/getDicomTarballs $@
+#########
+
+
+
+
+%runscript
+echo "Use the 'singularity run -a <app>' option to select an app. To list apps use 'singularity apps'"
