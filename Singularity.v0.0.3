@@ -112,6 +112,9 @@ heuristics
 apt-get update
 apt-get install -y bzip2
 apt-get install -y build-essential libtool autotools-dev automake autoconf
+apt-get install -y parallel 
+
+
 
 DEST=${SINGULARITY_APPROOT}
 
@@ -156,15 +159,6 @@ git checkout $TAG
 sed -i -E "s/0.0.0/$TAG/" package.json
 npm install -g .
 
-
-#install octave
-#apt-get install -y octave
-
-#add path for octave code
-#echo addpath\(genpath\(\'${SINGULARITY_APPROOT}/etc/octave\'\)\)\; >> /etc/octave.conf 
-
-#install gnu parallel 
-apt-get install -y parallel 
 
 export LANGUAGE="en_US.UTF-8"
 echo 'LANGUAGE="en_US.UTF-8"' >> /etc/default/locale
