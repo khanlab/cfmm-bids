@@ -1,0 +1,188 @@
+Bootstrap: docker
+From: ubuntu:xenial
+
+
+######################################
+# Install software common to all apps
+######################################
+#------------------------------------
+%runscript
+echo "Use the 'singularity run -a <app>' option to select an app, e.g. singularity run -a tar2bids. To list apps use 'singularity apps'"
+#------------------------------------
+
+#------------------------------------
+%post
+#------------------------------------
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update && apt-get install -y --no-install-recommends apt-utils \
+    sudo \
+    git \
+    wget \
+    curl \
+    zip \
+    unzip \
+    python2.7 \
+    python-pip \
+    rsync \
+    openssh-client
+
+pip install -U pip setuptools
+
+#####################################
+# dicom2tar install
+####################################
+
+%appfiles dicom2tar
+dicom2tar.py
+
+
+#-------------------------
+%appinstall dicom2tar
+
+ #commit from Feb 1 2018
+git clone https://www.github.com/pydicom/pydicom.git
+cd pydicom
+git checkout 1314e86e3a96d0c226a03fb21136c0ff3c3ce7d3
+python setup.py install
+
+
+#-------------------------
+%apprun dicom2tar
+exec ${SINGULARITY_APPROOT}/dicom2tar.py $@
+
+####################################
+# cfmm2tar install
+####################################
+%appfiles cfmm2tar
+
+cfmm2tar
+install_dcm4che_ubuntu.sh 
+retrieve_cfmm_tgz.py
+#-------------------------
+%appinstall cfmm2tar
+
+
+#needed for keytool
+if [ ! -e /dev/fd ]
+then
+ln -s /proc/self/fd /dev/fd
+fi
+
+
+#install pydicom (requires this older version)
+git clone https://www.github.com/pydicom/pydicom.git
+cd pydicom
+git checkout ebf6a79602348d003a1d1324c66626f9f2b05432
+python setup.py install
+
+
+#needed when install dcm4che
+apt-get install -y default-jre
+
+#install dcm4che
+cd ${SINGULARITY_APPROOT}
+bash install_dcm4che_ubuntu.sh ${SINGULARITY_APPROOT} 
+
+#------------------------
+%appenv cfmm2tar
+
+export PATH=${SINGULARITY_APPROOT}:${SINGULARITY_APPROOT}/dcm4che-3.3.8/bin:$PATH
+export _JAVA_OPTIONS="-Xmx4048m"
+
+
+#------------------------
+%apprun cfmm2tar
+exec ${SINGULARITY_APPROOT}/cfmm2tar $@
+
+#####################################
+# tar2bids install
+####################################
+
+%appfiles tar2bids
+
+tar2bids
+etc
+heuristics
+
+
+#-------------------------
+%appinstall tar2bids
+
+apt-get update
+apt-get install -y bzip2
+apt-get install -y build-essential libtool autotools-dev automake autoconf
+
+DEST=${SINGULARITY_APPROOT}
+
+# anaconda:
+ANACONDA2_DIR=$DEST/anaconda2
+INST_FILE=Anaconda2-4.2.0-Linux-x86_64.sh
+#-P: prefix, where there file will be save to
+wget -P $ANACONDA2_DIR --tries=10 https://repo.continuum.io/archive/$INST_FILE 
+#-b:bacth mode, -f: no error if install prefix already exists
+PATH=$ANACONDA2_DIR/bin:$PATH
+bash $ANACONDA2_DIR/$INST_FILE -b -f -p $ANACONDA2_DIR
+rm $ANACONDA2_DIR/$INST_FILE
+
+# heudiconv depends
+conda install -y -c conda-forge nipype 
+pip install --upgrade pip
+pip install https://github.com/moloney/dcmstack/archive/c12d27d2c802d75a33ad70110124500a83e851ee.zip
+
+#dcm2niix
+RANDOM_TEMP=${RANDOM}
+wget https://www.dropbox.com/s/elg1t4fm3zp4qxg/mricrogl_linux.zip?dl=0 -O ${RANDOM_TEMP}.zip;unzip -o ${RANDOM_TEMP}.zip -d ${DEST}; rm ${RANDOM_TEMP}.zip
+
+
+# heudiconv (requires khanlab fork)
+git clone http://github.com/khanlab/heudiconv 
+cd heudiconv
+git checkout v0.4
+python setup.py install
+
+# Install bids-validator
+apt-get update && \
+apt-get install -y curl git && \
+curl -sL https://deb.nodesource.com/setup_8.x | bash - && \
+apt-get remove -y curl && \
+apt-get install -y nodejs && \
+rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+TAG=0.25.0
+git clone http://github.com/khanlab/bids-validator
+cd bids-validator
+git checkout $TAG
+sed -i -E "s/0.0.0/$TAG/" package.json
+npm install -g .
+
+
+#install octave
+#apt-get install -y octave
+
+#add path for octave code
+#echo addpath\(genpath\(\'${SINGULARITY_APPROOT}/etc/octave\'\)\)\; >> /etc/octave.conf 
+
+#install gnu parallel 
+apt-get install -y parallel 
+
+export LANGUAGE="en_US.UTF-8"
+echo 'LANGUAGE="en_US.UTF-8"' >> /etc/default/locale
+echo 'LC_ALL="en_US.UTF-8"' >> /etc/default/locale
+
+
+#--------------------------
+%appenv tar2bids
+
+#anaconda2
+export PATH=${SINGULARITY_APPROOT}/anaconda2/bin/:$PATH
+#heudiconv
+export PYTHONPATH=${SINGULARITY_APPROOT}/heudiconv:$PYTHONPATH
+#dcm2niix
+export PATH=${SINGULARITY_APPROOT}/mricrogl_lx:$PATH
+
+
+#-------------------------
+%apprun tar2bids
+exec ${SINGULARITY_APPROOT}/tar2bids $@
+

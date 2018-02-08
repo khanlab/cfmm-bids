@@ -1,0 +1,163 @@
+#!/bin/bash
+
+
+function usage {
+
+	echo "Runs dicom tarball(s) to BIDS conversion using heudiconv"
+	echo "Usage: tar2bids  <optional flags>  '<{subject} search string>'  <in tar file(s)>"
+	echo ""
+	echo " Optional flags (must appear before required arguments):"
+	echo "	-o <output_dir> : default=$output_dir"
+	echo "	-N <num parallel cores> : default=0  (max cores)"
+	echo "	-h <heuristic.py> : default=$heuristic"
+	echo "	-O \"<additional heudiconv options>\" : default=$heudi_opts"
+	echo ""
+	echo " Available heuristic files:"
+	for h in `ls ${heuristic_dir}/*.py`
+	do
+		echo "	${h##*/}"
+	done
+	exit 1
+}
+
+execpath=`dirname $0`
+execpath=`realpath $execpath`
+
+heuristic_dir=$execpath/heuristics
+output_dir=./bids
+heuristic=cfmm_bold_rest.py
+heudi_opts=
+ncores=0
+
+while getopts "N:o:h:O:" options; do
+ case $options in
+    N ) echo "  Overriding number of cores: $OPTARG" >&2
+	ncores=$OPTARG;;
+    o ) echo "	Overriding output dir as: $OPTARG" >&2
+	output_dir=`realpath $OPTARG`;;
+    h ) echo "	Overriding heuristic file as: $OPTARG" >&2
+	heuristic=$OPTARG;;
+    O ) echo "	Using heudiconv options: $OPTARGS"  >&2
+	heudi_opts="$OPTARG";;
+
+    * ) usage
+	exit 1;;
+ esac
+done
+
+shift $((OPTIND-1))
+
+if [ -e $heuristic ]
+then
+ heuristic_file=`realpath $heuristic`
+else
+ heuristic_file=$heuristic_dir/$heuristic
+ if [ ! -e $heuristic_file ]
+ then
+   echo $heuristic does not exist!
+   exit 1 
+ fi
+fi
+
+if [ "$#" -lt 2 ]
+then
+  usage;
+  exit 1;
+fi
+
+search=$1
+shift 1
+
+
+
+output_dir=`realpath $output_dir`
+code_dir=$output_dir/code
+sourcedata=$output_dir/sourcedata
+mkdir -p $code_dir $sourcedata
+
+datestring=`date +%Y-%m-%d_%Hh%Mm`
+log_dir=$code_dir/tar2bids_$datestring
+if [ -e $log_dir ]
+then 
+ log_dir=${log_dir}_`date +%M`
+fi
+
+mkdir -p $log_dir
+
+subjlist=$log_dir/subjects-list.txt
+validator_out=$log_dir/bids-validator.txt
+heudiconv_out=$log_dir/heudiconv
+mkdir $log_dir/logs
+heudi_log=$log_dir/logs/heudiconv
+tuneup_log=$log_dir/logs/tuneup
+
+
+# parse tarfile names to get subjids
+for tar in $@
+do
+	filename=${tar##*/}
+
+	folder=`realpath $(dirname $tar)`
+
+	subjid=`$execpath/etc/getSubjID $search $filename`
+	if [ ! $? = 0 ]
+	then
+		echo ERROR in $0: no matching subjid in tar: $tar
+		echo $subjid
+		exit 1
+	fi
+
+	echo "$filename -> $subjid"
+
+	#compile subjid list
+	echo $subjid >> $subjlist
+done
+
+if [ ! -e $subjlist ]
+then
+ echo "no subjects found! exiting.."
+ exit 1
+fi
+
+#sort and remove duplicate entries in subjlist
+sort -u $subjlist -o $subjlist
+
+
+#expression for heudiconv
+dicom_expr=$folder/${search}
+
+#options for GNU parallel
+popts="--no-notice --verbose --jobs $ncores"
+
+cat $subjlist | parallel $popts  "heudiconv ${heudi_opts} -b -d ${dicom_expr} -o $output_dir -f $heuristic_file -s {} | tee $heudi_log.{} "
+
+echo "Copying hidden .heudiconv folder to $heudiconv_out"
+cp -R $output_dir/.heudiconv $heudiconv_out
+
+
+#check if certain files exist that need further corrections: (the following simply suppresses stderr: 1>/dev/null 2>&1)
+Nfmaps=`ls $output_dir/sub-*/fmap/*phasediffss.nii.gz 1>/dev/null 2>&1 | wc -l`
+Ngre=`ls $output_dir/sub-*/anat/*GRE?.nii.gz 1>/dev/null 2>&1 | wc -l`
+Nmemp2rage=`ls $output_dir/sub-*/anat/*MP2RAGE?.nii.gz 1>/dev/null 2>&1 | wc -l`
+
+
+if [ ! "$Nfmaps" = 0 ]
+then
+echo "Running bids correction from phasediff fieldmap data..."
+cat $subjlist | parallel $popts "$execpath/etc/correctFieldMap $output_dir {} | tee -a $tuneup_log.{} " 
+fi
+
+if [ ! "$Ngre" = 0 -o ! "$Nmemp2rage" = 0 ]
+then
+echo "Running bids correction from multi-echo GRE and MP2RAGE fieldmap data..."
+cat $subjlist | parallel $popts "$execpath/etc/correctMultiEcho $output_dir {} | tee -a $tuneup_log.{}"
+fi
+
+echo "Cleaning participants file (sorting, removing extra columns)..."
+$execpath/etc/cleanParticipantsFile $output_dir
+
+echo "Running bids-validator..."
+bids-validator $output_dir > $validator_out
+
+
+exit 0
