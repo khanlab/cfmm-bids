@@ -1,5 +1,10 @@
-# getDicomTarballs
-Retrieve dicom tarballs from CFMM dicom server
 
-# dicom2tar example:
-singularity exec --bind /path/to/data:/data getDIcomTarballs.simg dicom2tar.py /data /data/output
+#dicom2tar
+Grab all the dicom images in folders, zipfiles etc, and organize them into tarballs
+
+#cfmm2tar
+Retrieve dicom tarballs from the CFMM dicom server
+
+#tar2bids
+Convert dicom tarballs to BIDS (heudiconv)
+
